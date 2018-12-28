@@ -1,0 +1,96 @@
+#! /usr/bin/env python3
+
+from typing import *
+import os, re
+from collections import namedtuple
+import xml.etree.ElementTree as XmlElementTree
+
+from urllib.error import HTTPError, URLError, ContentTooShortError
+import urllib.request
+import shutil
+
+downloadsDir = os.path.join(os.path.dirname(__file__), 'downloads')
+#infoUrl = 'https://media.ccc.de/c/35c3/podcast/mp4-master.xml' # All languages
+infoUrl = 'https://media.ccc.de/c/35c3/podcast/mp4.xml' # Original language
+
+MediaInfo = namedtuple('MediaInfo', ('url', 'fileName'
+#, 'title', 'subtitle', 'size', 'type'
+))
+
+def downloadMediaInfos(url:str) -> List[str]:
+    args = {'url': url}
+    with urllib.request.urlopen(**args) as response:
+        return [lineBytes.decode('UTF-8') for lineBytes in response]
+
+def parseMediaInfos(mediaInfosText: List[str]) -> List[MediaInfo]:
+    rootE = XmlElementTree.fromstringlist(mediaInfosText)
+    return [parseMediaInfo(itemE) for itemE in rootE.findall('./channel/item')]
+
+def parseMediaInfo(infoE: XmlElementTree.Element) -> MediaInfo:
+    itunesNs = r'{http://www.itunes.com/dtds/podcast-1.0.dtd}'
+    data = {
+        'url': infoE.find('enclosure').attrib['url'],
+        #'title': infoE.findtext('title'),
+        #'subtitle': infoE.findtext(f'{itunesNs}subtitle'),
+        #'size': int(infoE.find('enclosure').attrib['length'], 10), # Bugged
+        #'type': infoE.find('enclosure').attrib['type'],
+    }
+    match = re.search(r'/(?P<name>[^/]+)(?P<ext>\.[^./]+)$', data['url'])
+    data['fileName'] = mangleFileName(match.group('name')) + match.group('ext')
+    return MediaInfo(**data)
+
+def mangleFileName(name: str) -> str:
+    name = re.sub(r'_', ' ', name)
+    name = re.sub(r'-', ' - ', name)
+    name = re.sub(r' +', ' ', name)
+    return name
+
+def getMediaPath(mediaInfo: MediaInfo, targetDir: str) -> str:
+    return os.path.join(targetDir, mediaInfo.fileName)
+
+def getRemoteMediaSize(url: str) -> int:
+    request = urllib.request.Request(url, method='HEAD')
+    with urllib.request.urlopen(request) as response:
+        info = response.info()
+        return int(info['Content-Length'], 10)
+
+def downloadMedia(url: str, targetPath: str):
+    with open(targetPath, 'wb') as file:
+        with urllib.request.urlopen(url) as response:
+            shutil.copyfileobj(response, file)
+
+def main():
+    if not os.path.isdir(downloadsDir):
+        print('Creating downloads folder:')
+        print(' Folder:', downloadsDir)
+        os.mkdir(downloadsDir)
+    print('Downloading media files information:')
+    print(' URL:', infoUrl)
+    mediaInfosText = downloadMediaInfos(infoUrl)
+    print('Parsing media files information:')
+    mediaInfos = parseMediaInfos(mediaInfosText)
+    print('Processing media files:')
+    for mediaInfo in mediaInfos:
+        path = getMediaPath(mediaInfo, downloadsDir)
+        size = getRemoteMediaSize(mediaInfo.url)
+        isNew = not os.path.isfile(path)
+        isUpdated = not isNew and os.stat(path).st_size != size
+        if isNew:
+            print(' Downloading new media file:', mediaInfo.fileName)
+        elif isUpdated:
+            print(' Downloading updated media file:', mediaInfo.fileName)
+            print('  Old size:', os.stat(path).st_size)
+        else:
+            print(' Skipping old media file:', mediaInfo.fileName)
+        if isNew: # or isUpdated:
+            print('  New size:', size)
+            print('  URL:', mediaInfo.url)
+            try:
+                downloadMedia(mediaInfo.url, path)
+            except (HTTPError, URLError, ContentTooShortError) as ex:
+                print('  Error while downloading!')
+                print(ex)
+                continue
+
+if __name__ == "__main__":
+    main()
