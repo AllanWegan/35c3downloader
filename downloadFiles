@@ -71,26 +71,29 @@ def main():
     mediaInfos = parseMediaInfos(mediaInfosText)
     print('Processing media files:')
     for mediaInfo in mediaInfos:
+        print(' Media file:', mediaInfo.fileName)
+        print('  URL:', mediaInfo.url)
         path = getMediaPath(mediaInfo, downloadsDir)
         size = getRemoteMediaSize(mediaInfo.url)
         isNew = not os.path.isfile(path)
         isUpdated = not isNew and os.stat(path).st_size != size
         if isNew:
-            print(' Downloading new media file:', mediaInfo.fileName)
+            print('  Status: New')
         elif isUpdated:
-            print(' Downloading updated media file:', mediaInfo.fileName)
+            print('  Status: Updated')
             print('  Old size:', os.stat(path).st_size)
         else:
-            print(' Skipping old media file:', mediaInfo.fileName)
-        if isNew: # or isUpdated:
+            print('  Status: Unchanged')
+        if isNew or isUpdated:
             print('  New size:', size)
-            print('  URL:', mediaInfo.url)
+            print('  Downloading...')
             try:
                 downloadMedia(mediaInfo.url, path)
             except (HTTPError, URLError, ContentTooShortError) as ex:
                 print('  Error while downloading!')
                 print(ex)
                 continue
+    print('Done.')
 
 if __name__ == "__main__":
     main()
